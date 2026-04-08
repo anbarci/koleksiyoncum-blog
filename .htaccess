@@ -1,0 +1,33 @@
+# Koleksiyoncum — SEO URL Yönlendirme
+Options -Indexes
+RewriteEngine On
+
+# Sitemap & Robots
+RewriteRule ^sitemap\.xml$ index.php?sitemap [L,QSA]
+RewriteRule ^robots\.txt$  index.php?robots  [L,QSA]
+RewriteRule ^rss\.xml$     index.php?feed    [L,QSA]
+
+# Temiz URL'ler (isteğe bağlı)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^yazi/([a-z0-9-]+)/?$    index.php?p=$1    [L,QSA]
+RewriteRule ^kategori/([a-z0-9-]+)/?$ index.php?cat=$1 [L,QSA]
+RewriteRule ^admin/?$                  index.php?section=admin [L,QSA]
+
+# posts.json'ı dışarıdan koruyan kural
+<Files "posts.json">
+  Order Allow,Deny
+  Deny from all
+</Files>
+
+# Güvenlik başlıkları
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  Header set X-Frame-Options "SAMEORIGIN"
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# Gzip sıkıştırma
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/plain text/xml application/json
+</IfModule>
