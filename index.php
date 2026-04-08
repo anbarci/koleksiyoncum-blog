@@ -24,11 +24,17 @@ function siteUrl(string $path = ''): string {
 // ── Veri Yönetimi ───────────────────────────────────────────────
 function loadPosts(): array {
     if (!file_exists(DATA_FILE)) return [];
-    $d = json_decode(file_get_contents(DATA_FILE), true);
+    $raw = @file_get_contents(DATA_FILE);
+    if ($raw === false) return [];
+    $d = json_decode($raw, true);
     return is_array($d) ? $d : [];
 }
 function savePosts(array $posts): void {
-    file_put_contents(DATA_FILE, json_encode(array_values($posts), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+    $json = json_encode(array_values($posts), JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+    $result = @file_put_contents(DATA_FILE, $json, LOCK_EX);
+    if ($result === false) {
+        error_log('koleksiyoncum: posts.json yazılamadı: ' . DATA_FILE);
+    }
 }
 function genId(): string { return uniqid('p_', true); }
 
@@ -49,17 +55,33 @@ function uniqueSlug(string $slug, array $posts, string $excludeId = ''): string 
 }
 
 // ── Mini Markdown Parser ─────────────────────────────────────────
+function sanitizeUrl(string $url): string {
+    $url = trim($url);
+    if (preg_match('/^(https?:\/\/)/i', $url)) return $url;
+    return '#';
+}
+
 function markdownToHtml(string $text): string {
-    $text = htmlspecialchars_decode($text); // admin'den gelen encode'u çöz
+    // Escape all HTML first to prevent XSS
+    $text = htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     // Başlıklar
     $text = preg_replace('/^### (.+)$/m', '<h3>$1</h3>', $text);
     $text = preg_replace('/^## (.+)$/m',  '<h2>$1</h2>', $text);
     $text = preg_replace('/^# (.+)$/m',   '<h1>$1</h1>', $text);
     // Kalın & İtalik
-    $text = preg_replace('/\*\*(.+?)\*\*/', '<strong>$1</strong>', $text);
-    $text = preg_replace('/\*(.+?)\*/',     '<em>$1</em>', $text);
-    // Linkler
-    $text = preg_replace('/\[([^\]]+)\]\(([^)]+)\)/', '<a href="$2" target="_blank" rel="noopener noreferrer nofollow sponsored">$1</a>', $text);
+    $text = preg_replace('/\*\*(.+?)\*\*/s', '<strong>$1</strong>', $text);
+    $text = preg_replace('/\*(.+?)\*/s',     '<em>$1</em>', $text);
+    // Linkler — URL'yi doğrula
+    $text = preg_replace_callback(
+        '/\[([^\]]+)\]\(([^)]+)\)/',
+        function ($m) {
+            $label = $m[1]; // already HTML-escaped
+            $url   = sanitizeUrl(html_entity_decode($m[2], ENT_QUOTES, 'UTF-8'));
+            $url   = htmlspecialchars($url, ENT_QUOTES, 'UTF-8');
+            return '<a href="' . $url . '" target="_blank" rel="noopener noreferrer nofollow sponsored">' . $label . '</a>';
+        },
+        $text
+    );
     // Listeler
     $text = preg_replace('/^\- (.+)$/m', '<li>$1</li>', $text);
     $text = preg_replace('/(<li>.*<\/li>)/s', '<ul>$1</ul>', $text);
@@ -82,7 +104,40 @@ function excerpt(string $content, int $len = 160): string {
 }
 
 // ── Session & Auth ───────────────────────────────────────────────
+ini_set('session.use_strict_mode', '1');
+ini_set('session.cookie_httponly', '1');
+ini_set('session.cookie_samesite', 'Strict');
+if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+    ini_set('session.cookie_secure', '1');
+}
 session_start();
+
+// Session timeout (30 minutes)
+$sessionTimeout = 1800;
+if (!empty($_SESSION['admin'])) {
+    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $sessionTimeout) {
+        session_unset();
+        session_destroy();
+        session_start();
+    } else {
+        $_SESSION['last_activity'] = time();
+    }
+}
+
+// CSRF token
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+$csrfToken = $_SESSION['csrf_token'];
+
+function verifyCsrf(): void {
+    $token = $_POST['csrf_token'] ?? '';
+    if (!hash_equals($_SESSION['csrf_token'] ?? '', $token)) {
+        http_response_code(403);
+        exit('Geçersiz CSRF token.');
+    }
+}
+
 $isAdmin = !empty($_SESSION['admin']);
 
 // ── Kategoriler & Platformlar ────────────────────────────────────
@@ -107,31 +162,51 @@ if (isset($_GET['robots'])) { outputRobots(); exit; }
 $flashMsg = '';
 
 if ($action === 'login') {
-    if (($_POST['pw'] ?? '') === ADMIN_PASS) { $_SESSION['admin'] = true; header('Location: ?section=admin'); exit; }
+    verifyCsrf();
+    if (($_POST['pw'] ?? '') === ADMIN_PASS) {
+        session_regenerate_id(true);
+        $_SESSION['admin'] = true;
+        $_SESSION['last_activity'] = time();
+        header('Location: ?section=admin'); exit;
+    }
     $flashMsg = 'error:Hatalı şifre!';
 }
-if ($action === 'logout') { session_destroy(); header('Location: ?'); exit; }
+if ($action === 'logout') { verifyCsrf(); session_destroy(); header('Location: ?'); exit; }
 
 if ($action === 'save' && $isAdmin) {
+    verifyCsrf();
     $posts   = loadPosts();
     $id      = trim($_POST['id'] ?? '');
     $rawSlug = trim($_POST['slug'] ?? '') ?: slugify(trim($_POST['title'] ?? ''));
     $rawSlug = slugify($rawSlug);
     $rawSlug = $rawSlug ?: 'post';
     $rawSlug = uniqueSlug($rawSlug, $posts, $id);
+
+    // Whitelist category & platform
+    $category = trim($_POST['category'] ?? 'Diğer');
+    if (!in_array($category, $CATS, true)) $category = 'Diğer';
+    $platform = trim($_POST['platform'] ?? 'Amazon');
+    if (!in_array($platform, $PLTS, true)) $platform = 'Amazon';
+
+    // URL validation (http/https only)
+    $link  = trim($_POST['link']  ?? '');
+    $image = trim($_POST['image'] ?? '');
+    if ($link  && !preg_match('/^https?:\/\//i', $link))  $link  = '';
+    if ($image && !preg_match('/^https?:\/\//i', $image)) $image = '';
+
     $post = [
         'id'          => $id ?: genId(),
         'slug'        => $rawSlug,
-        'title'       => trim($_POST['title'] ?? ''),
-        'meta_title'  => trim($_POST['meta_title'] ?? ''),
-        'meta_desc'   => trim($_POST['meta_desc'] ?? ''),
+        'title'       => mb_substr(trim($_POST['title'] ?? ''), 0, 200),
+        'meta_title'  => mb_substr(trim($_POST['meta_title'] ?? ''), 0, 60),
+        'meta_desc'   => mb_substr(trim($_POST['meta_desc'] ?? ''), 0, 160),
         'content'     => trim($_POST['content'] ?? ''),
-        'link'        => trim($_POST['link'] ?? ''),
-        'image'       => trim($_POST['image'] ?? ''),
-        'category'    => trim($_POST['category'] ?? 'Diğer'),
-        'platform'    => trim($_POST['platform'] ?? 'Amazon'),
-        'price'       => trim($_POST['price'] ?? ''),
-        'badge'       => trim($_POST['badge'] ?? ''),
+        'link'        => $link,
+        'image'       => $image,
+        'category'    => $category,
+        'platform'    => $platform,
+        'price'       => mb_substr(trim($_POST['price'] ?? ''), 0, 50),
+        'badge'       => mb_substr(trim($_POST['badge'] ?? ''), 0, 50),
         'active'      => isset($_POST['active']),
         'created_at'  => '',
         'updated_at'  => date('c'),
@@ -149,6 +224,7 @@ if ($action === 'save' && $isAdmin) {
 }
 
 if ($action === 'delete' && $isAdmin) {
+    verifyCsrf();
     $id = $_POST['id'] ?? '';
     $posts = loadPosts();
     savePosts(array_filter($posts, fn($p) => $p['id'] !== $id));
@@ -156,6 +232,7 @@ if ($action === 'delete' && $isAdmin) {
 }
 
 if ($action === 'toggle' && $isAdmin) {
+    verifyCsrf();
     $id = $_POST['id'] ?? '';
     $posts = loadPosts();
     foreach ($posts as &$p) if ($p['id'] === $id) { $p['active'] = !($p['active'] ?? true); }
@@ -541,6 +618,7 @@ footer a:hover{color:var(--accent)}
     <?php endif; ?>
     <form method="POST">
       <input type="hidden" name="action" value="login">
+      <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
       <div class="fg" style="text-align:left;margin-bottom:1rem">
         <label class="flbl" for="pw">Şifre</label>
         <input class="fin" type="password" id="pw" name="pw" autofocus required>
@@ -570,7 +648,7 @@ footer a:hover{color:var(--accent)}
       <button onclick="toggleTheme()" class="btn-icon" aria-label="Tema">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
       </button>
-      <form method="POST" style="margin:0"><input type="hidden" name="action" value="logout">
+      <form method="POST" style="margin:0"><input type="hidden" name="action" value="logout"><input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
         <button type="submit" class="btn-sm btn-g">Çıkış</button>
       </form>
     </div>
@@ -612,6 +690,7 @@ footer a:hover{color:var(--accent)}
     <h1 class="pg-ttl"><?= $editPost ? 'Yazı Düzenle' : 'Yeni Yazı Ekle' ?></h1>
     <form method="POST" class="form-card">
       <input type="hidden" name="action" value="save">
+      <input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>">
       <input type="hidden" name="id" value="<?= h($editPost['id'] ?? '') ?>">
       <div class="form-grid">
         <div class="fg full">
@@ -700,7 +779,7 @@ footer a:hover{color:var(--accent)}
         <tbody>
           <?php foreach ($allPosts as $p): ?>
           <tr>
-            <td><form method="POST" style="margin:0"><input type="hidden" name="action" value="toggle"><input type="hidden" name="id" value="<?= h($p['id']) ?>">
+            <td><form method="POST" style="margin:0"><input type="hidden" name="action" value="toggle"><input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>"><input type="hidden" name="id" value="<?= h($p['id']) ?>">
               <button type="submit" title="Durumu değiştir" style="padding:2px"><span class="<?= ($p['active']??true)?'dot-on':'dot-off' ?>"></span></button>
             </form></td>
             <td><strong style="font-size:var(--tx-sm)"><?= h(mb_strimwidth($p['title'],0,50,'…')) ?></strong>
@@ -712,7 +791,7 @@ footer a:hover{color:var(--accent)}
               <a href="?section=admin&edit=<?= h($p['id']) ?>" class="btn-sm btn-g">Düzenle</a>
               <a href="<?= h(postUrl($p)) ?>" target="_blank" class="btn-sm btn-g">Gör</a>
               <form method="POST" style="margin:0" onsubmit="return confirm('Bu yazı silinsin mi?')">
-                <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= h($p['id']) ?>">
+                <input type="hidden" name="action" value="delete"><input type="hidden" name="csrf_token" value="<?= h($csrfToken) ?>"><input type="hidden" name="id" value="<?= h($p['id']) ?>">
                 <button type="submit" class="btn-sm btn-d">Sil</button>
               </form>
             </div></td>
