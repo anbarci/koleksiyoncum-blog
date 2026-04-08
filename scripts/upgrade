@@ -1,0 +1,48 @@
+#!/bin/bash
+
+#=================================================
+# IMPORT GENERIC HELPERS
+#=================================================
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+#=================================================
+# STOP PHPFPM
+#=================================================
+ynh_script_progression "Stopping PHP-FPM..."
+
+ynh_systemctl --service="php$phpversion-fpm" --action=stop --wait_until="Processes active: 0"
+
+#=================================================
+# DOWNLOAD, CHECK AND UNPACK SOURCE
+#=================================================
+ynh_script_progression "Upgrading source files..."
+
+# --full_replace: eski dosyaları temizle; config.php ve data_dir'ı koru
+ynh_setup_source --dest_dir="$install_dir" --full_replace --keep="config.php"
+
+chown -R "$app:www-data" "$install_dir"
+chmod -R o-rwx "$install_dir"
+
+#=================================================
+# REAPPLY CONFIGURATION
+#=================================================
+ynh_script_progression "Reapplying system configurations for $app..."
+
+ynh_config_add_phpfpm
+ynh_config_add_nginx
+
+#=================================================
+# RELOAD PHP-FPM AND NGINX
+#=================================================
+ynh_script_progression "Reloading PHP-FPM and NGINX..."
+
+ynh_systemctl --service="php$phpversion-fpm" --action=reload
+ynh_systemctl --service=nginx                --action=reload
+
+#=================================================
+# END OF SCRIPT
+#=================================================
+
+ynh_script_progression "Upgrade of $app completed"

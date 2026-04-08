@@ -1,0 +1,68 @@
+#!/bin/bash
+
+#=================================================
+# IMPORT GENERIC HELPERS
+#=================================================
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+# Kurulum parametreleri ($domain, $path, $admin, $password, $install_dir, $data_dir)
+# YunoHost core tarafından otomatik yüklenir.
+
+#=================================================
+# INITIALIZE AND STORE SETTINGS
+#=================================================
+
+ynh_app_setting_set --key=php_upload_max_filesize --value=10M
+ynh_app_setting_set --key=php_post_max_size       --value=10M
+
+#=================================================
+# DOWNLOAD, CHECK AND UNPACK SOURCE
+#=================================================
+ynh_script_progression "Setting up source files..."
+
+ynh_setup_source --dest_dir="$install_dir"
+
+# Uygulama dosyaları: sahip=app, grup=www-data (PHP-FPM bu grupla çalışır)
+chown -R "$app:www-data" "$install_dir"
+chmod -R o-rwx "$install_dir"
+
+#=================================================
+# CONFIGURE DATA DIRECTORY
+#=================================================
+ynh_script_progression "Configuring data directory..."
+
+# posts.json için data dizini oluştur ve izinlerini ayarla
+# Multi-instance desteği: her instance kendi $data_dir'ına sahip
+mkdir -p "$data_dir"
+chown "$app:www-data" "$data_dir"
+chmod 750 "$data_dir"
+
+#=================================================
+# APP CONFIGURATION
+#=================================================
+ynh_script_progression "Configuring $app..."
+
+# ADMIN_PASS için bcrypt hash oluştur (PHP password_hash kullanılır)
+hashed_pass=$(php -r "echo password_hash('$password', PASSWORD_BCRYPT);")
+
+# Uygulama yapılandırma dosyasını oluştur
+# index.php bu dosyayı include ederek ortam değişkenlerini okur
+ynh_config_add --template="config.php" --destination="$install_dir/config.php"
+chmod 400 "$install_dir/config.php"
+chown "$app:$app" "$install_dir/config.php"
+
+#=================================================
+# SYSTEM CONFIGURATION
+#=================================================
+ynh_script_progression "Adding system configurations related to $app..."
+
+ynh_config_add_phpfpm
+ynh_config_add_nginx
+
+#=================================================
+# END OF SCRIPT
+#=================================================
+
+ynh_script_progression "Installation of $app completed"

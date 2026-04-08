@@ -5,11 +5,31 @@
 // ═══════════════════════════════════════════════════════════════
 
 // ── Yapılandırma ────────────────────────────────────────────────
-define('ADMIN_PASS',  'koleksiyoncum2026');   // Değiştirin!
+// YunoHost ortamında config.php otomatik oluşturulur ve
+// ADMIN_PASS_HASH ile DATA_DIR sabitlerini tanımlar.
+// Geliştirme / manuel kurulum için config.php yoksa varsayılanlar kullanılır.
+if (file_exists(__DIR__ . '/config.php')) {
+    require_once __DIR__ . '/config.php';
+}
+
+// ADMIN_PASS_HASH: bcrypt hash (password_verify ile kontrol edilir)
+// Tanımlı değilse varsayılan düz metin şifresiyle uyumlu sahte hash kullan
+if (!defined('ADMIN_PASS_HASH')) {
+    // Varsayılan şifre: 'koleksiyoncum2026' — Değiştirin!
+    define('ADMIN_PASS_HASH', '$2y$10$defaultHashPlaceholderXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
+    define('ADMIN_PASS_LEGACY', 'koleksiyoncum2026');
+}
+
+// DATA_DIR: posts.json'ın tutulacağı dizin
+// YunoHost'ta /home/yunohost.app/<app>/, manuel kurulumda uygulama dizini
+if (!defined('DATA_DIR')) {
+    define('DATA_DIR', __DIR__);
+}
+
 define('SITE_NAME',   'Koleksiyoncum');
 define('SITE_DESC',   'Özenle seçilmiş en iyi ürün incelemeleri ve fırsatlar');
 define('SITE_URL',    '');                    // Boş = otomatik algıla
-define('DATA_FILE',   __DIR__ . '/posts.json');
+define('DATA_FILE',   rtrim(DATA_DIR, '/') . '/posts.json');
 define('PER_PAGE',    12);
 
 // ── Site URL ────────────────────────────────────────────────────
@@ -107,7 +127,11 @@ if (isset($_GET['robots'])) { outputRobots(); exit; }
 $flashMsg = '';
 
 if ($action === 'login') {
-    if (($_POST['pw'] ?? '') === ADMIN_PASS) { $_SESSION['admin'] = true; header('Location: ?section=admin'); exit; }
+    $pw = $_POST['pw'] ?? '';
+    // YunoHost kurulumunda bcrypt hash kullanılır; eski/manuel kurulum için düz metin fallback
+    $valid = password_verify($pw, ADMIN_PASS_HASH)
+          || (defined('ADMIN_PASS_LEGACY') && $pw === ADMIN_PASS_LEGACY);
+    if ($valid) { $_SESSION['admin'] = true; header('Location: ?section=admin'); exit; }
     $flashMsg = 'error:Hatalı şifre!';
 }
 if ($action === 'logout') { session_destroy(); header('Location: ?'); exit; }
