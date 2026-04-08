@@ -113,9 +113,9 @@ if (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
 session_start();
 
 // Session timeout (30 minutes)
-$SESSION_TIMEOUT = 1800;
+$sessionTimeout = 1800;
 if (!empty($_SESSION['admin'])) {
-    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $SESSION_TIMEOUT) {
+    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $sessionTimeout) {
         session_unset();
         session_destroy();
         session_start();
@@ -167,9 +167,6 @@ if ($action === 'login') {
         session_regenerate_id(true);
         $_SESSION['admin'] = true;
         $_SESSION['last_activity'] = time();
-        // regenerate CSRF token after privilege change
-        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-        $csrfToken = $_SESSION['csrf_token'];
         header('Location: ?section=admin'); exit;
     }
     $flashMsg = 'error:Hatalı şifre!';
