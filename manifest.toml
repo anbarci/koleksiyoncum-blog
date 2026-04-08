@@ -13,7 +13,7 @@ maintainers = ["anbarci"]
 
 [upstream]
 license = "MIT"
-code = "https://github.com/anbarci/koleksiyoncum-blog"
+code = "https://github.com/anbarci/koleksiyoncum_ynh"
 
 [integration]
 yunohost = ">= 12.1.17"
@@ -53,7 +53,7 @@ ram.runtime = "30M"
 
 [resources]
     [resources.sources.main]
-    url    = "https://github.com/anbarci/koleksiyoncum-blog/archive/refs/heads/main.tar.gz"
+    url    = "https://github.com/anbarci/koleksiyoncum_ynh/archive/refs/heads/main.tar.gz"
     sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
     # autoupdate.strategy = "latest_github_tag"
 

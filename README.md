@@ -5,7 +5,7 @@
 YunoHost 12+ destekli sunucuda:
 
 ```bash
-yunohost app install https://github.com/anbarci/koleksiyoncum-blog
+yunohost app install https://github.com/anbarci/koleksiyoncum_ynh
 ```
 
 Kurulum sırasında domain, URL yolu ve yönetici şifresi sorulur.  
