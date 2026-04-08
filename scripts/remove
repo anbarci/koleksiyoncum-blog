@@ -1,0 +1,24 @@
+#!/bin/bash
+
+#=================================================
+# IMPORT GENERIC HELPERS
+#=================================================
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+#=================================================
+# REMOVE SYSTEM CONFIGURATION
+#=================================================
+ynh_script_progression "Removing system configurations related to $app..."
+
+ynh_config_remove_phpfpm
+ynh_config_remove_nginx
+
+#=================================================
+# END OF SCRIPT
+#=================================================
+
+# $install_dir ve $data_dir (--purge ile) YunoHost core tarafından kaldırılır
+
+ynh_script_progression "Removal of $app completed"

@@ -1,0 +1,72 @@
+#:schema https://raw.githubusercontent.com/YunoHost/apps/main/schemas/manifest.v2.schema.json
+
+packaging_format = 2
+
+id = "koleksiyoncum"
+name = "Koleksiyoncum Blog"
+description.en = "Single-file SEO blog & affiliate manager with no database, built in PHP"
+description.tr = "Veritabansız, tek dosyadan oluşan SEO blog ve affiliate yöneticisi"
+
+version = "1.0~ynh1"
+
+maintainers = ["anbarci"]
+
+[upstream]
+license = "MIT"
+code = "https://github.com/anbarci/koleksiyoncum_ynh"
+
+[integration]
+yunohost = ">= 12.1.17"
+helpers_version = "2.1"
+architectures = "all"
+multi_instance = true
+
+# Bu uygulama kendi şifre sistemiyle çalışıyor; LDAP/SSO desteklemiyor
+ldap = false
+sso  = false
+
+disk = "20M"
+ram.build = "20M"
+ram.runtime = "30M"
+
+[install]
+    [install.domain]
+    type = "domain"
+
+    [install.path]
+    type = "path"
+    default = "/blog"
+
+    [install.init_main_permission]
+    type = "group"
+    default = "visitors"
+
+    [install.admin]
+    type = "user"
+
+    [install.password]
+    ask.en = "Choose an admin password for the blog"
+    ask.tr = "Blog yönetici şifresini belirleyin"
+    help.en = "This replaces the default password 'koleksiyoncum2026'. Keep it safe."
+    help.tr = "Varsayılan 'koleksiyoncum2026' şifresinin yerine geçer. Güvenli tutun."
+    type = "password"
+
+[resources]
+    [resources.sources.main]
+    url    = "https://github.com/anbarci/koleksiyoncum_ynh/archive/refs/heads/main.tar.gz"
+    sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+    # autoupdate.strategy = "latest_github_tag"
+
+    [resources.system_user]
+
+    [resources.install_dir]
+    # /var/www/koleksiyoncum
+
+    [resources.data_dir]
+    # /home/yunohost.app/koleksiyoncum  ← posts.json burada saklanır
+
+    [resources.permissions]
+    main.url = "/"
+
+    [resources.apt]
+    packages = "php8.3-fpm, php8.3-mbstring, php8.3-json"
